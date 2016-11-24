@@ -1,2 +1,4 @@
 ffmpeg/
 x264/
+*.o
+./transcode
