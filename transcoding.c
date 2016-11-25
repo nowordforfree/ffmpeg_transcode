@@ -529,8 +529,6 @@ static int encode_write_frame(AVFrame *filt_frame, unsigned int stream_index, in
         got_frame = &got_frame_local;
 
     av_log(NULL, AV_LOG_INFO, "Encoding frame\n");
-    av_log(NULL, AV_LOG_INFO, "enc_ctx->frame_size: %d\n", enc_ctx->frame_size);
-    av_log(NULL, AV_LOG_INFO, "frame->nb_samples: %d\n", filt_frame->nb_samples);
     /* encode filtered frame */
     av_init_packet(&enc_pkt);
     enc_pkt.data = NULL;
@@ -630,7 +628,8 @@ int main(int argc, char **argv)
     AVFrame           *frame = NULL;
     SwrContext        *resample_context = NULL;
     AVAudioFifo       *fifo = NULL;
-    enum AVMediaType  type;
+    enum AVCodecID    in_codec;
+    enum AVCodecID    need_codec;
     unsigned int      stream_index;
     unsigned int      i;
     int               ret;
@@ -670,12 +669,15 @@ int main(int argc, char **argv)
         ret = av_read_frame(input->ifmt_ctx, &packet);
         if (ret < 0)
             break;
+        enum AVMediaType type;
         stream_index = packet.stream_index;
+        in_codec = input->ifmt_ctx->streams[packet.stream_index]->codecpar->codec_id;
+        need_codec = output->ofmt_ctx->streams[packet.stream_index]->codecpar->codec_id;
         type = input->ifmt_ctx->streams[packet.stream_index]->codecpar->codec_type;
         av_log(NULL, AV_LOG_DEBUG, "Demuxer gave frame of stream_index %u\n",
                 stream_index);
 
-        if (filter_ctx[stream_index].filter_graph) {
+        if (in_codec != need_codec) {
             av_log(NULL, AV_LOG_INFO, "Going to reencode & filter the frame\n");
             frame = av_frame_alloc();
             if (!frame) {
@@ -689,6 +691,7 @@ int main(int argc, char **argv)
             } else {
               dec_func = avcodec_decode_audio4;
               codec_ctx = input->dec_ctx_a;
+              continue;
             }
             av_packet_rescale_ts(&packet,
                                  codec_ctx->time_base,
@@ -742,13 +745,15 @@ int main(int argc, char **argv)
         }
     }
 
+    av_log(NULL, AV_LOG_INFO, "Going to write trailer\n");
     av_write_trailer(output->ofmt_ctx);
+    av_log(NULL, AV_LOG_INFO, "Going to cleanup\n");
 end:
     if (fifo)
         av_audio_fifo_free(fifo);
     swr_free(&resample_context);
-    av_packet_unref(&packet);
-    av_frame_free(&frame);
+    // av_packet_unref(&packet);
+    // av_frame_free(&frame);
     for (i = 0; i < input->ifmt_ctx->nb_streams; i++) {
         avcodec_close(input->ifmt_ctx->streams[i]->codec);
         if (output->ofmt_ctx &&
