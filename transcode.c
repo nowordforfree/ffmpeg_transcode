@@ -36,9 +36,7 @@
 #include "libswresample/swresample.h"
 
 /** The output bit rate in kbit/s */
-#define OUTPUT_BIT_RATE 320000
-/** The number of output channels */
-#define OUTPUT_CHANNELS 2
+#define OUTPUT_BIT_RATE 192000
 /* global error code container */
 int ret;
 
@@ -124,6 +122,23 @@ static int open_input_file(const char *filename,
     return 0;
 }
 
+/* just pick the highest supported samplerate */
+static int select_sample_rate(AVCodec *codec)
+{
+    const int *p;
+    int best_samplerate = 0;
+
+    if (!codec->supported_samplerates)
+        return 44100;
+
+    p = codec->supported_samplerates;
+    while (*p) {
+        best_samplerate = FFMAX(*p, best_samplerate);
+        p++;
+    }
+    return best_samplerate;
+}
+
 /**
  * Open an output file and the required encoder.
  * Also set some basic encoder parameters.
@@ -186,9 +201,9 @@ static int open_output_file(const char *filename,
      * Set the basic encoder parameters.
      * The input file's sample rate is used to avoid a sample rate conversion.
      */
-    avctx->channels       = OUTPUT_CHANNELS;
-    avctx->channel_layout = av_get_default_channel_layout(OUTPUT_CHANNELS);
-    avctx->sample_rate    = input_codec_context->sample_rate;
+    avctx->channels       = input_codec_context->channels;
+    avctx->channel_layout = av_get_default_channel_layout(input_codec_context->channels);
+    avctx->sample_rate    = select_sample_rate(output_codec);
     avctx->sample_fmt     = output_codec->sample_fmts[0];
     avctx->bit_rate       = OUTPUT_BIT_RATE;
 
@@ -610,6 +625,7 @@ static int load_encode_and_write(AVAudioFifo *fifo,
      */
     const int frame_size = FFMIN(av_audio_fifo_size(fifo),
                                  output_codec_context->frame_size);
+
     int data_written;
 
     /** Initialize temporary storage for one output frame. */
