@@ -152,6 +152,13 @@ static int select_sample_rate(AVCodec *codec)
     return best_samplerate;
 }
 
+static int write_metadata(AVFormatContext *from, AVFormatContext *to)
+{
+    AVDictionaryEntry *tag = NULL;
+    while ((tag = av_dict_get(from->metadata, "", tag, AV_DICT_IGNORE_SUFFIX)))
+        av_dict_set(&to->metadata, tag->key, tag->value, 0);
+}
+
 static int open_output_file(const char *filename)
 {
     AVFormatContext *ofmt_ctx = NULL;
@@ -271,6 +278,7 @@ static int open_output_file(const char *filename)
             return ret;
         }
     }
+    write_metadata(input->ifmt_ctx, output->ofmt_ctx);
 
     av_dump_format(ofmt_ctx, 0, filename, 1);
 
@@ -659,7 +667,7 @@ static int encode_write_frame(AVFrame *filt_frame, unsigned int stream_index, in
     av_packet_rescale_ts(&enc_pkt, tb_src, tb_dst);
 
     /* mux encoded frame */
-    ret = av_interleaved_write_frame(output->ofmt_ctx, &enc_pkt);
+    ret = av_write_frame(output->ofmt_ctx, &enc_pkt);
     av_frame_free(&filt_frame);
     av_packet_unref(&enc_pkt);
     return ret;
@@ -745,13 +753,6 @@ static int filter_encode_write_frame(AVFrame *frame, unsigned int stream_index)
     }
 
     return ret;
-}
-
-static int write_metadata(AVFormatContext *from, AVFormatContext *to)
-{
-    AVDictionaryEntry *tag = NULL;
-    while ((tag = av_dict_get(from->metadata, "", tag, AV_DICT_IGNORE_SUFFIX)))
-        av_dict_set(&to->metadata, tag->key, tag->value, 0);
 }
 
 static int flush_encoder(unsigned int stream_index)
@@ -863,7 +864,8 @@ int main(int argc, char **argv)
             need_codec  = output->stream_audio->codecpar->codec_id;
         }
 
-        if (in_codec != need_codec) {
+        if (in_codec != need_codec)
+        {
             AVCodecContext *codec_ctx;
 
             if (!(frame = av_frame_alloc())) {
@@ -947,13 +949,15 @@ int main(int argc, char **argv)
             }
             if (type == AVMEDIA_TYPE_VIDEO)
             {
-                frame->pts = av_frame_get_best_effort_timestamp(frame);
+                // frame->pts = av_frame_get_best_effort_timestamp(frame);
                 ret = filter_encode_write_frame(frame, stream_index);
                 av_frame_free(&frame);
                 if (ret < 0)
                     goto end;
             }
-        } else {
+        }
+        else
+        {
             /* remux this frame without reencoding */
             av_packet_rescale_ts(&packet,
                                  input->ifmt_ctx->streams[stream_index]->time_base,
@@ -984,7 +988,7 @@ int main(int argc, char **argv)
             goto end;
         }
     }
-    write_metadata(input->ifmt_ctx, output->ofmt_ctx);
+
     av_write_trailer(output->ofmt_ctx);
 end:
     if (fifo)
