@@ -10,12 +10,13 @@ LIBDIRS = \
         -L./ffmpeg/libswresample \
         -L./ffmpeg/libswscale \
         -L./ffmpeg/libavdevice \
-        -L./ffmpeg/libavutil
+        -L./ffmpeg/libavutil \
+        -L./x264
 
 LIBS = -lavfilter -lavformat -lavcodec -lswresample -lswscale -lpostproc \
 			 -lavutil -lvpx -lx264 -lm -lz -lssl -lcrypto -pthread -ldl
 
-CXXSOURCES = transcode.c
+CXXSOURCES = transcoding.c
 CXXOBJECTS = $(CXXSOURCES:.c=.o)
 HEADERFLAGS = $(INCLUDEDIRS)
 LDFLAGS = $(LIBDIRS) $(LIBS)
