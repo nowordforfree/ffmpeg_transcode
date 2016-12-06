@@ -1,6 +1,6 @@
 CXX = gcc
 PROGRAM = transcode
-INCLUDEDIRS = -Iffmpeg/ -Ix264/
+INCLUDEDIRS = -I./ffmpeg -I./x264
 
 LIBDIRS = \
         -L./ffmpeg/libavcodec \
@@ -14,15 +14,23 @@ LIBDIRS = \
         -L./x264
 
 LIBS = -lavfilter -lavformat -lavcodec -lswresample -lswscale -lpostproc \
-			 -lavutil -lvpx -lx264 -lm -lz -lssl -lcrypto -pthread -ldl
+			 -lavutil -lx264 -lm -lz -lssl -lcrypto -pthread -ldl
 
-CXXSOURCES = transcoding.c
-CXXOBJECTS = $(CXXSOURCES:.c=.o)
+MODULES = transcoding
+CXXSOURCES = $(MODULES).c
+CXXOBJECTS = $(MODULES).o
 HEADERFLAGS = $(INCLUDEDIRS)
 LDFLAGS = $(LIBDIRS) $(LIBS)
 
-all: $(PROGRAM)
-$(PROGRAM): $(CXXOBJECTS)
-		$(CXX) -o $@ $(CXXOBJECTS) $(LDFLAGS)
+.PHONY: all
+
+all: executable
+
+build:
+		$(CXX) $(HEADERFLAGS) -c $(CXXSOURCES)
+
+executable: build
+		$(CXX) -o $(PROGRAM) $(CXXOBJECTS) $(LDFLAGS)
+
 clean:
 		$(RM) -f $(CXXOBJECTS) $(PROGRAM)

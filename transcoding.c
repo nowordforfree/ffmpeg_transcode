@@ -5,7 +5,6 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/timestamp.h"
 #include "libavutil/time.h"
-#include "libswscale/swscale.h"
 #include "libswresample/swresample.h"
 #include "x264/x264.h"
 
@@ -200,10 +199,11 @@ static int open_output_file(const char *filename)
             enc_ctx->width              = dec_par->width;
             enc_ctx->sample_aspect_ratio = dec_par->sample_aspect_ratio;
             /* take first format from list of supported formats */
-            if (encoder->pix_fmts)
-                enc_ctx->pix_fmt        = encoder->pix_fmts[0];
-            else
-                enc_ctx->pix_fmt        = input->dec_ctx_v->pix_fmt;
+            // if (encoder->pix_fmts)
+            //     enc_ctx->pix_fmt        = encoder->pix_fmts[0];
+            // else
+            //     enc_ctx->pix_fmt        = input->dec_ctx_v->pix_fmt;
+            enc_ctx->pix_fmt            = AV_PIX_FMT_YUV420P;
             /* video time_base can be set to whatever is handy and supported by encoder */
             if (input->dec_ctx_v->time_base.num > 0)
                 enc_ctx->time_base      = input->dec_ctx_v->time_base;
@@ -300,23 +300,6 @@ static int init_resampler(SwrContext **resample_context)
     return 0;
 }
 
-static int init_sws(SwsContext **sws_ctx)
-{
-    *sws_ctx = sws_getContext(input->dec_ctx_v->width,
-                             input->dec_ctx_v->height,
-                             input->dec_ctx_v->pix_fmt,
-                             output->enc_ctx_v->width,
-                             output->enc_ctx_v->height,
-                             output->enc_ctx_v->pix_fmt,
-                             SWS_BICUBIC, NULL, NULL, NULL);
-    if (!*sws_ctx) {
-        av_log(NULL, AV_LOG_ERROR, "Could not initialize the conversion context\n");
-        return AVERROR(ENOMEM);
-    }
-
-    return 0;
-}
-
 static int init_fifo(AVAudioFifo **fifo)
 {
     /** Create the FIFO buffer based on the specified output sample format. */
@@ -377,38 +360,6 @@ static int convert_samples(SwrContext *resample_context,
     }
 
     return 0;
-}
-
-static int scale_encode_write_frame(SwsContext *sws_ctx, AVFrame *frame, enum AVMediaType type)
-{
-    int ret;
-    AVFrame *tmp_frame;
-
-    if (!(tmp_frame = av_frame_alloc())) {
-        av_log(NULL, AV_LOG_ERROR, "Could not allocate temporary frame\n");
-        ret = AVERROR(ENOMEM);
-        goto end;
-    }
-    tmp_frame->format = output->enc_ctx_v->pix_fmt;
-    tmp_frame->width  = output->enc_ctx_v->width;
-    tmp_frame->height = output->enc_ctx_v->height;
-    /* allocate the buffers for the frame data */
-    ret = av_frame_get_buffer(tmp_frame, 32);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Could not allocate frame data.\n");
-        return ret;
-    }
-
-    sws_scale(sws_ctx,
-              (const unit8_t* const*)tmp_frame->data,
-              tmp_frame->linesize,
-              0, output->enc_ctx_v->height,
-              frame->data, frame->linesize);
-
-    ret = encode_write_frame(tmp_frame, type);
-    av_frame_free(&frame);
-
-    return ret;
 }
 
 static int add_samples_to_fifo(AVAudioFifo *fifo,
@@ -473,10 +424,8 @@ static int encode(AVCodecContext *avctx, AVPacket *pkt, AVFrame *frame,
         }
 
         if (type == AVMEDIA_TYPE_VIDEO) {
-            av_log(NULL, AV_LOG_INFO, "Video packet\n");
             pkt->stream_index = output->stream_video->index;
         } else if (type == AVMEDIA_TYPE_AUDIO) {
-            av_log(NULL, AV_LOG_INFO, "Audio packet\n");
             pkt->stream_index = output->stream_audio->index;
         } else {
             av_log(NULL, AV_LOG_WARNING, "Unknown media type provided\n");
@@ -484,9 +433,6 @@ static int encode(AVCodecContext *avctx, AVPacket *pkt, AVFrame *frame,
 
         av_packet_rescale_ts(pkt, tb_src, tb_dst);
 
-        av_log(NULL, AV_LOG_INFO, "pkt->pts:\t%s\npkt->dts:\t%s\n",
-                                  av_ts2timestr(pkt->pts, &tb_dst),
-                                  av_ts2timestr(pkt->dts, &tb_dst));
         ret = av_interleaved_write_frame(output->ofmt_ctx, pkt);
         av_packet_unref(pkt);
         if (ret < 0)
@@ -600,7 +546,6 @@ int main(int argc, char **argv)
     }
 
     SwrContext        *resample_context = NULL;
-    SwsContext        *sws_ctx = NULL;
     AVAudioFifo       *fifo = NULL;
     enum AVCodecID    in_codec;
     enum AVCodecID    need_codec;
@@ -618,6 +563,7 @@ int main(int argc, char **argv)
     output = av_malloc(sizeof(*output));
     if (!output)
         return AVERROR(ENOMEM);
+
     ret = open_input_file(argv[1]);
     if (ret < 0)
         goto end;
@@ -625,9 +571,6 @@ int main(int argc, char **argv)
     if (ret < 0)
         goto end;
     ret = init_resampler(&resample_context);
-    if (ret < 0)
-        goto end;
-    ret = init_sws(&sws_ctx);
     if (ret < 0)
         goto end;
     ret = init_fifo(&fifo);
@@ -742,7 +685,7 @@ int main(int argc, char **argv)
                 }
                 if (type == AVMEDIA_TYPE_VIDEO)
                 {
-                    ret = scale_encode_write_frame(sws_ctx, frame, type);
+                    ret = encode_write_frame(frame, type);
                     if (ret < 0)
                         goto end;
                 }
@@ -826,7 +769,6 @@ end:
     if (fifo)
         av_audio_fifo_free(fifo);
     swr_free(&resample_context);
-    sws_freeContext(&sws_ctx);
     // for (i = 0; i < input->ifmt_ctx->nb_streams; i++) {
     //     if (filter_ctx && filter_ctx[i].filter_graph)
     //         avfilter_graph_free(&filter_ctx[i].filter_graph);
