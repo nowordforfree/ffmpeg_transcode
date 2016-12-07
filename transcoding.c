@@ -769,10 +769,6 @@ end:
     if (fifo)
         av_audio_fifo_free(fifo);
     swr_free(&resample_context);
-    // for (i = 0; i < input->ifmt_ctx->nb_streams; i++) {
-    //     if (filter_ctx && filter_ctx[i].filter_graph)
-    //         avfilter_graph_free(&filter_ctx[i].filter_graph);
-    // }
     if (input->dec_ctx_v)
         avcodec_close(input->dec_ctx_v);
     if (input->dec_ctx_a)
